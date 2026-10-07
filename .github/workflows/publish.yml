@@ -1,0 +1,41 @@
+# Публикует релиз из файлов, которые сборка закрытого репозитория AI_parser присылает в ветку incoming.
+name: Publish
+
+on:
+  push:
+    branches: [incoming]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: incoming
+
+      - name: Проверка файлов
+        run: |
+          for f in version.txt notes.md RADAR.exe RADAR.exe.sha256 RADAR-Setup.exe; do
+            test -s "$f" || { echo "Нет файла $f"; exit 1; }
+          done
+          test "$(sha256sum RADAR.exe | cut -d' ' -f1)" = "$(tr -d ' \r\n' < RADAR.exe.sha256)" \
+            || { echo "Контрольная сумма RADAR.exe не совпала"; exit 1; }
+
+      - name: Публикация
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(tr -d ' \r\n' < version.txt)
+          if gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Релиз v$VERSION уже опубликован"
+            exit 0
+          fi
+          gh release create "v$VERSION" RADAR.exe RADAR.exe.sha256 RADAR-Setup.exe \
+            --repo "$GITHUB_REPOSITORY" --target main --title "RADAR $VERSION" --notes-file notes.md
